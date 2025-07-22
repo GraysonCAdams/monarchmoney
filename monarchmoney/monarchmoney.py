@@ -2672,6 +2672,62 @@ class MonarchMoney(object):
             graphql_query=query,
         )
 
+    async def update_flexible_budget(
+        self,
+        amount: float,
+        start_date: Optional[str] = None,
+        apply_to_future: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Updates the Flexible budget amount.
+
+        :param amount:
+            The amount to set the Flexible budget to. Can be negative (to indicate over-budget).
+            A zero value will "unset" or "clear" the budget for the Flexible category.
+        :param start_date:
+            The beginning of the given timeframe (ex: 2023-12-01). If not specified, then the
+            beginning of next month will be used.
+        :param apply_to_future:
+            Whether to apply the new budget amount to all proceeding timeframes
+        """
+        from datetime import date
+        if start_date is None:
+            today = date.today()
+            if today.month == 12:
+                next_month = date(today.year + 1, 1, 1)
+            else:
+                next_month = date(today.year, today.month + 1, 1)
+            start_date = next_month.strftime('%Y-%m-%d')
+
+        query = gql(
+            """
+            mutation Common_UpdateFlexBudgetMutation($input: UpdateOrCreateFlexBudgetItemMutationInput!) {
+              updateOrCreateFlexBudgetItem(input: $input) {
+                budgetItem {
+                  id
+                  budgetAmount
+                  __typename
+                }
+                __typename
+              }
+            }
+            """
+        )
+
+        variables = {
+            "input": {
+                "startDate": start_date,
+                "amount": amount,
+                "applyToFuture": apply_to_future,
+            }
+        }
+
+        return await self.gql_call(
+            operation="Common_UpdateFlexBudgetMutation",
+            variables=variables,
+            graphql_query=query,
+        )
+
     async def upload_account_balance_history(
         self, account_id: str, csv_content: str
     ) -> None:
