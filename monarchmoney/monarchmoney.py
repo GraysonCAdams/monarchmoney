@@ -2650,18 +2650,34 @@ class MonarchMoney(object):
             }
           }
         """
-        )
+        ) if category_id else gql(
+            """
+          mutation Common_UpdateBudgetItem($input: UpdateOrCreateBudgetItemMutationInput!) {
+            updateOrCreateBudgetItem(input: $input) {
+              budgetItem {
+                id
+                plannedCashFlowAmount
+                __typename
+              }
+              __typename
+            }
+          }
+        """
+        ) 
 
         variables = {
             "input": {
                 "startDate": start_date,
                 "timeframe": timeframe,
-                "categoryId": category_id,
-                "categoryGroupId": category_group_id,
                 "amount": amount,
                 "applyToFuture": apply_to_future,
             }
         }
+
+        if category_id:
+            variables["input"]["categoryId"] = category_id 
+        elif category_group_id:
+            variables["input"]["categoryGroupId"] = category_group_id
 
         if start_date is None:
             variables["input"]["startDate"] = self._get_start_of_current_month()
@@ -2819,6 +2835,77 @@ class MonarchMoney(object):
             "Web_GetUpcomingRecurringTransactionItems", query, variables
         )
 
+    async def get_all_recurring_transaction_items(
+        self,
+        frequencies: Optional[list] = None,
+        include_liabilities: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Fetches all recurring transaction streams for specified frequencies (quarterly, semiyearly, yearly, etc).
+        Optionally includes liabilities.
+        """
+        query = gql(
+            """
+            query Web_GetAllRecurringTransactionItems($filters: RecurringTransactionFilter, $includeLiabilities: Boolean) {
+              recurringTransactionStreams(
+                filters: $filters
+                includeLiabilities: $includeLiabilities
+              ) {
+                stream {
+                  id
+                  frequency
+                  isActive
+                  isApproximate
+                  name
+                  logoUrl
+                  merchant {
+                    id
+                    __typename
+                  }
+                  creditReportLiabilityAccount {
+                    id
+                    account {
+                      id
+                      __typename
+                    }
+                    __typename
+                  }
+                  __typename
+                }
+                nextForecastedTransaction {
+                  date
+                  amount
+                  __typename
+                }
+                category {
+                  id
+                  name
+                  icon
+                  __typename
+                }
+                account {
+                  id
+                  displayName
+                  icon
+                  logoUrl
+                  __typename
+                }
+                __typename
+              }
+            }
+        """
+        )
+        filters = {}
+        if frequencies:
+            filters["frequencies"] = frequencies
+        variables = {
+            "filters": filters,
+            "includeLiabilities": include_liabilities,
+        }
+        return await self.gql_call(
+            "Web_GetAllRecurringTransactionItems", query, variables
+        )
+
     def _get_current_date(self) -> str:
         """
         Returns the current date as a string formatted like %Y-%m-%d.
@@ -2874,7 +2961,7 @@ class MonarchMoney(object):
         Loads pre-existing auth token from a Python pickle file.
         """
         if filename is None:
-            filename = self._session_file
+                       filename = self._session_file
 
         with open(filename, "rb") as fh:
             data = pickle.load(fh)
