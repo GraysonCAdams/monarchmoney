@@ -1,5 +1,7 @@
 # Monarch Money
 
+> **Fork Notice:** This is a maintained fork of [hammem/monarchmoney](https://github.com/hammem/monarchmoney) that powers [Eclosion for Monarch](https://github.com/GraysonCAdams/eclosion-for-monarch) — a self-hosted toolkit that expands what's possible with Monarch Money. This fork may include features or fixes not yet available in the upstream repository. For general use, we recommend using the original library.
+
 Python library for accessing [Monarch Money](https://www.monarchmoney.com/referral/ngam2i643l) data.
 
 # Installation
