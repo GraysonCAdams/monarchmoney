@@ -1,16 +1,39 @@
-# Ensures proactive management of this library's dependencies
-
 version: 2
 updates:
   - package-ecosystem: "pip"
-    directory: "/" # Location of package manifests
+    directory: "/"
     schedule:
       interval: "weekly"
     reviewers:
-      - "hammem"
+      - "GraysonCAdams"
     commit-message:
       prefix: "[pip] "
       include: "scope"
-    lables:
-      - "pip"
+    labels:
       - "dependencies"
+      - "pip"
+    groups:
+      # Group all minor and patch updates together
+      python-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    reviewers:
+      - "GraysonCAdams"
+    commit-message:
+      prefix: "[actions] "
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
