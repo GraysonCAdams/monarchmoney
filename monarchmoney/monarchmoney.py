@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 import oathtool
 from aiohttp import ClientSession, FormData
 from aiohttp.client import DEFAULT_TIMEOUT
-from gql import Client, gql
+from gql import Client, GraphQLRequest, gql
 from gql.transport.aiohttp import AIOHTTPTransport
 from graphql import DocumentNode
 
@@ -24,7 +24,7 @@ SESSION_FILE = f"{SESSION_DIR}/mm_session.pickle"
 
 
 class MonarchMoneyEndpoints(object):
-    BASE_URL = "https://api.monarchmoney.com"
+    BASE_URL = "https://api.monarch.com"
 
     @classmethod
     def getLoginEndpoint(cls) -> str:
@@ -57,13 +57,31 @@ class MonarchMoney(object):
         session_file: str = SESSION_FILE,
         timeout: int = 10,
         token: Optional[str] = None,
+        # Custom header options for client identification
+        device_uuid: Optional[str] = None,
+        client_platform: str = "web",
+        monarch_client: Optional[str] = None,
+        monarch_client_version: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ) -> None:
+        # Build headers with custom values if provided
         self._headers = {
             "Accept": "application/json",
-            "Client-Platform": "web",
             "Content-Type": "application/json",
-            "User-Agent": "MonarchMoneyAPI (https://github.com/hammem/monarchmoney)",
+            "Client-Platform": client_platform,
+            "User-Agent": user_agent or "MonarchMoneyAPI (https://github.com/hammem/monarchmoney)",
         }
+
+        # Add optional headers if provided
+        if device_uuid:
+            self._headers["device-uuid"] = device_uuid
+        if monarch_client:
+            self._headers["monarch-client"] = monarch_client
+        if monarch_client_version:
+            self._headers["monarch-client-version"] = monarch_client_version
+        # Add origin header to match browser behavior
+        self._headers["origin"] = "https://app.monarch.com"
+
         if token:
             self._headers["Authorization"] = f"Token {token}"
 
@@ -2650,24 +2668,96 @@ class MonarchMoney(object):
             }
           }
         """
-        )
+        ) if category_id else gql(
+            """
+          mutation Common_UpdateBudgetItem($input: UpdateOrCreateBudgetItemMutationInput!) {
+            updateOrCreateBudgetItem(input: $input) {
+              budgetItem {
+                id
+                plannedCashFlowAmount
+                __typename
+              }
+              __typename
+            }
+          }
+        """
+        ) 
 
         variables = {
             "input": {
                 "startDate": start_date,
                 "timeframe": timeframe,
-                "categoryId": category_id,
-                "categoryGroupId": category_group_id,
                 "amount": amount,
                 "applyToFuture": apply_to_future,
             }
         }
+
+        if category_id:
+            variables["input"]["categoryId"] = category_id 
+        elif category_group_id:
+            variables["input"]["categoryGroupId"] = category_group_id
 
         if start_date is None:
             variables["input"]["startDate"] = self._get_start_of_current_month()
 
         return await self.gql_call(
             operation="Common_UpdateBudgetItem",
+            variables=variables,
+            graphql_query=query,
+        )
+
+    async def update_flexible_budget(
+        self,
+        amount: float,
+        start_date: Optional[str] = None,
+        apply_to_future: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Updates the Flexible budget amount.
+
+        :param amount:
+            The amount to set the Flexible budget to. Can be negative (to indicate over-budget).
+            A zero value will "unset" or "clear" the budget for the Flexible category.
+        :param start_date:
+            The beginning of the given timeframe (ex: 2023-12-01). If not specified, then the
+            beginning of next month will be used.
+        :param apply_to_future:
+            Whether to apply the new budget amount to all proceeding timeframes
+        """
+        from datetime import date
+        if start_date is None:
+            today = date.today()
+            if today.month == 12:
+                next_month = date(today.year + 1, 1, 1)
+            else:
+                next_month = date(today.year, today.month + 1, 1)
+            start_date = next_month.strftime('%Y-%m-%d')
+
+        query = gql(
+            """
+            mutation Common_UpdateFlexBudgetMutation($input: UpdateOrCreateFlexBudgetItemMutationInput!) {
+              updateOrCreateFlexBudgetItem(input: $input) {
+                budgetItem {
+                  id
+                  budgetAmount
+                  __typename
+                }
+                __typename
+              }
+            }
+            """
+        )
+
+        variables = {
+            "input": {
+                "startDate": start_date,
+                "amount": amount,
+                "applyToFuture": apply_to_future,
+            }
+        }
+
+        return await self.gql_call(
+            operation="Common_UpdateFlexBudgetMutation",
             variables=variables,
             graphql_query=query,
         )
@@ -2763,6 +2853,77 @@ class MonarchMoney(object):
             "Web_GetUpcomingRecurringTransactionItems", query, variables
         )
 
+    async def get_all_recurring_transaction_items(
+        self,
+        frequencies: Optional[list] = None,
+        include_liabilities: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Fetches all recurring transaction streams for specified frequencies (quarterly, semiyearly, yearly, etc).
+        Optionally includes liabilities.
+        """
+        query = gql(
+            """
+            query Web_GetAllRecurringTransactionItems($filters: RecurringTransactionFilter, $includeLiabilities: Boolean) {
+              recurringTransactionStreams(
+                filters: $filters
+                includeLiabilities: $includeLiabilities
+              ) {
+                stream {
+                  id
+                  frequency
+                  isActive
+                  isApproximate
+                  name
+                  logoUrl
+                  merchant {
+                    id
+                    __typename
+                  }
+                  creditReportLiabilityAccount {
+                    id
+                    account {
+                      id
+                      __typename
+                    }
+                    __typename
+                  }
+                  __typename
+                }
+                nextForecastedTransaction {
+                  date
+                  amount
+                  __typename
+                }
+                category {
+                  id
+                  name
+                  icon
+                  __typename
+                }
+                account {
+                  id
+                  displayName
+                  icon
+                  logoUrl
+                  __typename
+                }
+                __typename
+              }
+            }
+        """
+        )
+        filters = {}
+        if frequencies:
+            filters["frequencies"] = frequencies
+        variables = {
+            "filters": filters,
+            "includeLiabilities": include_liabilities,
+        }
+        return await self.gql_call(
+            "Web_GetAllRecurringTransactionItems", query, variables
+        )
+
     def _get_current_date(self) -> str:
         """
         Returns the current date as a string formatted like %Y-%m-%d.
@@ -2795,9 +2956,10 @@ class MonarchMoney(object):
         """
         Makes a GraphQL call to Monarch Money's API.
         """
-        return await self._get_graphql_client().execute_async(
-            request=graphql_query, variable_values=variables, operation_name=operation
+        request = GraphQLRequest(
+            graphql_query, variable_values=variables, operation_name=operation
         )
+        return await self._get_graphql_client().execute_async(request)
 
     def save_session(self, filename: Optional[str] = None) -> None:
         """
@@ -2818,7 +2980,7 @@ class MonarchMoney(object):
         Loads pre-existing auth token from a Python pickle file.
         """
         if filename is None:
-            filename = self._session_file
+                       filename = self._session_file
 
         with open(filename, "rb") as fh:
             data = pickle.load(fh)
@@ -2844,7 +3006,9 @@ class MonarchMoney(object):
         data = {
             "password": password,
             "supports_mfa": True,
-            "trusted_device": False,
+            "supports_email_otp": False,
+            "supports_recaptcha": False,
+            "trusted_device": True,
             "username": email,
         }
 
@@ -2875,8 +3039,10 @@ class MonarchMoney(object):
         data = {
             "password": password,
             "supports_mfa": True,
+            "supports_email_otp": False,
+            "supports_recaptcha": False,
             "totp": code,
-            "trusted_device": False,
+            "trusted_device": True,
             "username": email,
         }
 
