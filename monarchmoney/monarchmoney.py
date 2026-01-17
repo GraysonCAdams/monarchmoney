@@ -2876,6 +2876,7 @@ class MonarchMoney(object):
                   isApproximate
                   name
                   logoUrl
+                  baseDate
                   merchant {
                     id
                     __typename
