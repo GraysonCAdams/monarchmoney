@@ -13,3 +13,4 @@ lib
 __pycache__
 dist
 MANIFEST
+monarchmoney.egg-info/
